@@ -680,13 +680,20 @@ details .dbody{padding:11px}
 
   <div class="card">
     <h3>📥 Your recorded runs</h3>
-    <p class="sec-desc">
-      Use runs where <b>you hosted</b> if you can — then your own stat sheet is what applied. For runs where you joined,
-      the host's stats applied, not yours, so those will fit badly unless the host's setup matches yours.
-      Make sure My Setup reflects the gear/charms/research you had <i>at the time</i>.
-    </p>
+    <div class="note">
+      <b>Use one solo march and keep it identical between runs.</b> Vary only the thing you're measuring — troop count, or troop tier.
+      <ul style="margin:6px 0 0;padding-left:18px;line-height:1.6">
+        <li><b>Solo, not a rally.</b> Tick <b>Solo</b> (default). In a rally the joiners' skills apply and you can't control who joins;
+            solo means only your own three heroes count, which is what the app assumes.</li>
+        <li><b>Same heroes every run.</b> Any change in heroes changes the multipliers and the fit breaks.</li>
+        <li><b>Avoid chance-based heroes.</b> A "40% chance of +50% damage" skill makes the same march score differently every time —
+            that's noise the fit can't tell apart from model error. Prefer flat buffs (Chenko, Amane, Amadeus's first two skills).</li>
+        <li><b>Same buffs.</b> Don't let a pet active or an Attack Up item expire mid-experiment.</li>
+        <li>Make sure <b>My Setup</b> reflects the gear, charms and research you had <i>at the time</i>.</li>
+      </ul>
+    </div>
     <div class="scroll"><table id="runTable"><thead><tr>
-      <th>Use</th><th>Label</th><th>Target</th><th>Tier</th><th class="n">Infantry</th><th class="n">Cavalry</th><th class="n">Archer</th>
+      <th>Use</th><th>Label</th><th>Target</th><th>Solo</th><th>Tier</th><th class="n">Infantry</th><th class="n">Cavalry</th><th class="n">Archer</th>
       <th class="n">Score you got</th><th></th>
     </tr></thead><tbody></tbody></table></div>
     <div class="row" style="margin-top:8px">
@@ -1804,8 +1811,14 @@ function targetById(id){
   const list=(typeof DB!=="undefined" && DB.targets) ? DB.targets : DEFAULT_TARGETS;
   return list.find(t=>t.id===id) || list[0];
 }
-/* Predict a run against whichever target it was fought on. */
+/* Predict a run against whichever target it was fought on.
+   A SOLO hit has no joiners — only your own three heroes apply — so counting
+   the rally joiners you have configured would inflate the prediction and
+   corrupt the fit. Runs default to solo. */
 function predictRun(p, st, run){
+  if(run.solo!==false){
+    p = Object.assign({}, p, {role:"host", joiners:["none","none","none","none"]});
+  }
   const counts={inf:+run.inf||0, cav:+run.cav||0, arc:+run.arc||0};
   const baseAtk={}; TYPES.forEach(t=>baseAtk[t]=tierAtk(+run.tier||10, t));
   const tg=targetById(run.target||"bear");
@@ -1892,13 +1905,22 @@ function calibrate(p){
     if(same){ models[i].tiedWith.push(models[j].n); models[j].tiedWith.push(models[i].n); }
   }
   // can we actually discriminate? need >=2 runs that differ in size or shape
+  /* Chance-based hero skills make the same march score differently each time,
+     which is noise the fit cannot separate from model error. */
+  const procHeroes=[];
+  const scan=(hid,label)=>{
+    const h=HERO_BY_ID[hid]; if(!h) return;
+    h.s.forEach(sk=>sk.e.forEach(e=>{ if(e.p!=null) procHeroes.push(`${h.n} · ${sk.n} (${Math.round(e.p*100)}%)`); }));
+  };
+  (p.leadHeroes||[]).forEach(h=>scan(h));
   const targets=new Set(runs.map(r=>r.target||"bear"));
   const sizes=new Set(runs.map(r=>Math.round((+r.inf + +r.cav + +r.arc)/1000)));
   const shapes=new Set(runs.map(r=>{const t=(+r.inf + +r.cav + +r.arc)||1; return Math.round((+r.arc/t)*20);}));
   return {
     runs, models, ok:true,
     canDiscriminate: runs.length>=2 && (sizes.size>1 || shapes.size>1) && models[0].tiedWith.length===0,
-    tied: models[0].tiedWith, targets:[...targets],
+    tied: models[0].tiedWith, targets:[...targets], procHeroes:[...new Set(procHeroes)],
+    anySolo: runs.some(r=>r.solo!==false), anyRally: runs.some(r=>r.solo===false),
     variedSize: sizes.size>1, variedShape: shapes.size>1
   };
 }
@@ -3272,12 +3294,16 @@ function renderRuns(){
       td.appendChild(inp); tr.appendChild(td); return inp;
     };
     mk("label","text","110px");
+    const tdSolo=el("td");
+    const soloIn=el("input",{type:"checkbox"}); soloIn.checked = r.solo!==false;
+    soloIn.onchange=()=>{ r.solo=soloIn.checked; touch(); };
+    tdSolo.appendChild(soloIn);
     const tdTg=el("td");
     const tgs=el("select",{style:"width:126px;padding:4px 6px"});
     (DB.targets||DEFAULT_TARGETS).forEach(t=>tgs.appendChild(el("option",{value:t.id},t.n)));
     tgs.value=r.target||"bear";
     tgs.onchange=()=>{ r.target=tgs.value; touch(); };
-    tdTg.appendChild(tgs); tr.appendChild(tdTg);
+    tdTg.appendChild(tgs); tr.appendChild(tdTg); tr.appendChild(tdSolo);
     const tdT=el("td"); const sel=el("select",{style:"width:110px;padding:4px 6px"});
     TROOP_STATS.forEach(x=>sel.appendChild(el("option",{value:x.t},`T${x.t} ${x.name}`)));
     sel.value=r.tier||10; sel.onchange=()=>{r.tier=+sel.value; touch();};
@@ -3289,9 +3315,9 @@ function renderRuns(){
     tdD.appendChild(del); tr.appendChild(tdD);
     tb.appendChild(tr);
   });
-  if(!P.runs.length) tb.appendChild(el("tr",{},'<td colspan="9"><small>No runs yet. Hit a Beast or Terror a couple of times with different troop counts, then record them here.</small></td>'));
+  if(!P.runs.length) tb.appendChild(el("tr",{},'<td colspan="10"><small>No runs yet. Hit a Beast or Terror a couple of times with different troop counts, then record them here.</small></td>'));
   $("#btnAddRun").onclick=()=>{
-    P.runs.push({label:"Run "+(P.runs.length+1), target:"beast", tier:P.topTier, inf:0, cav:0, arc:0, score:0, use:true});
+    P.runs.push({label:"Run "+(P.runs.length+1), target:"beast", solo:true, tier:P.topTier, inf:0, cav:0, arc:0, score:0, use:true});
     touch(); renderRuns();
   };
   $("#btnClearRuns").onclick=()=>{ if(confirm("Delete all recorded runs?")){P.runs=[]; touch(); renderRuns();} };
@@ -3304,6 +3330,18 @@ function runCalibration(){
   const best=res.models[0];
   out.innerHTML="";
 
+  if(res.procHeroes && res.procHeroes.length){
+    out.appendChild(el("div",{class:"note warn"},
+      `<b>Your lead heroes have chance-based skills.</b> ${res.procHeroes.slice(0,4).join(", ")}${res.procHeroes.length>4?"…":""}.
+       These fire randomly, so the same march scores differently each time and the spread you see below is partly luck rather than
+       model error. For a clean measurement, swap to heroes with flat buffs for the test runs — or record several repeats of each
+       run so the randomness averages out.`));
+  }
+  if(res.anyRally){
+    out.appendChild(el("div",{class:"note"},
+      `Some runs are marked <b>not solo</b>. Those had joiners whose skills the app can't know, so they'll fit worse.
+       Solo hits give the cleanest measurement.`));
+  }
   if(!res.canDiscriminate){
     const tiedMsg = (res.tied && res.tied.length)
       ? `<b>${best.n}</b> and <b>${res.tied.join(", ")}</b> make mathematically identical predictions on these particular runs —
