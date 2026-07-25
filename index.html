@@ -180,6 +180,17 @@ details .dbody{padding:11px}
   .hud-sub{gap:10px}
   .logo{font-size:14px}
 }
+/* ---------- modal ---------- */
+.modal-bg{position:fixed;inset:0;z-index:200;background:rgba(6,9,13,.82);backdrop-filter:blur(4px);
+  display:flex;align-items:center;justify-content:center;padding:18px}
+.modal{background:var(--bg2);border:1px solid var(--line2);border-radius:14px;max-width:480px;width:100%;
+  padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.modal h2{font-size:19px;margin-bottom:6px}
+.modal .sub{color:var(--dim);font-size:13px;margin-bottom:14px;line-height:1.5}
+.owner-bar{background:rgba(255,159,28,.1);border:1px solid rgba(255,159,28,.4);border-radius:9px;
+  padding:9px 12px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.owner-bar b{color:var(--amber)}
+.you-badge{font-size:10px;font-weight:800;background:var(--good);color:#04220f;padding:1px 6px;border-radius:4px;letter-spacing:.03em}
 @media print{.hud,nav,header{display:none}}
 </style>
 </head>
@@ -207,6 +218,26 @@ details .dbody{padding:11px}
     <button data-tab="help">❓ Guide</button>
   </nav>
 </header>
+
+<div class="modal-bg" id="welcomeModal" style="display:none">
+  <div class="modal">
+    <h2>🐻 Who's using this?</h2>
+    <div class="sub" id="welcomeSub">
+      Your setup is saved in <b>this browser only</b> — nothing is shared and nobody else can see or change it.
+      Tell it who you are so your own profile stays separate from any alliance members you import later.
+    </div>
+    <label class="f"><span class="lb">Your governor name</span>
+      <input type="text" id="welcomeName" placeholder="e.g. Daglon" autocomplete="off"></label>
+    <label class="f"><span class="lb">Your Bear Trap</span>
+      <select id="welcomeTrap"><option value="1">Trap 1</option><option value="2">Trap 2</option></select></label>
+    <div class="row end" style="margin-top:6px">
+      <button class="btn" id="welcomeSkip">Skip for now</button>
+      <button class="btn pri" id="welcomeGo">That's me</button>
+    </div>
+  </div>
+</div>
+
+<div id="ownerBarWrap"></div>
 
 <main>
 
@@ -600,7 +631,14 @@ details .dbody{padding:11px}
     <div class="card">
       <h3>📤 Share</h3>
       <div class="row"><button class="btn" id="btnExportOne">Export current profile</button><button class="btn" id="btnExportAll">Export all profiles</button><button class="btn" id="btnImport">Import…</button></div>
-      <textarea id="ioBox" placeholder="Exported JSON appears here — or paste someone's export and press Import." style="margin-top:10px"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="btn pri" id="btnDownloadOne">⬇ Download my profile</button>
+        <button class="btn" id="btnDownloadAll">⬇ Download everything (backup)</button>
+        <button class="btn" id="btnUploadFile">⬆ Restore from a file…</button>
+        <input type="file" id="fileInput" accept=".json,application/json" style="display:none">
+      </div>
+      <small>Downloads a <code>.json</code> file you can send on Discord. "Everything" also includes your constants, labels and calibration runs.</small>
+      <textarea id="ioBox" placeholder="Or paste/copy JSON here if you'd rather not use files." style="margin-top:10px"></textarea>
       <div class="row end" style="margin-top:6px"><button class="btn sm" id="btnCopyIO">Copy</button><button class="btn sm pri" id="btnDoImport">Import from box</button></div>
     </div>
     <div class="card">
@@ -629,7 +667,15 @@ details .dbody{padding:11px}
     <br><br>
     <b>One run isn't enough</b> — any model can be scaled to hit a single number. To tell them apart you need <b>two or more runs
     that differ</b>: different total troop counts (tests the √ shape) or different formations (tests per-type vs whole-army).
-    Two marches in the same bear, one small and one large, is the fastest way to settle it.
+  </div>
+  <div class="note">
+    <b>You don't need a bear for this.</b> A 30-minute bear is a terrible lab — you can't afford to send a deliberately small march
+    just to measure something. So use a <b>Beast</b> or <b>Terror</b> instead: hit them on demand, as many times as you like,
+    with whatever troop counts you want.
+    <br><br>
+    It works because the target only contributes a <b>constant multiplier</b>. The √ shape and the ratios between troop tiers are
+    properties of <i>your army</i>, so they carry straight over to the bear. Only the absolute scale is target-specific, and the app
+    fits a separate one for each target — so you can mix bear runs and beast runs in the same table and it still reaches one verdict.
   </div>
 
   <div class="card">
@@ -640,7 +686,7 @@ details .dbody{padding:11px}
       Make sure My Setup reflects the gear/charms/research you had <i>at the time</i>.
     </p>
     <div class="scroll"><table id="runTable"><thead><tr>
-      <th>Use</th><th>Label</th><th>Tier</th><th class="n">Infantry</th><th class="n">Cavalry</th><th class="n">Archer</th>
+      <th>Use</th><th>Label</th><th>Target</th><th>Tier</th><th class="n">Infantry</th><th class="n">Cavalry</th><th class="n">Archer</th>
       <th class="n">Score you got</th><th></th>
     </tr></thead><tbody></tbody></table></div>
     <div class="row" style="margin-top:8px">
@@ -1350,6 +1396,24 @@ const RATIO_PRESETS = [
   {n:"Balanced", r:[33,33,34]}
 ];
 
+/* ---------- Calibration targets ----------
+   You can't run controlled experiments during a 30-minute bear. Beasts and
+   Terrors can be hit on demand, repeatedly, with whatever troops you like.
+   That works because the target only contributes a CONSTANT scale factor:
+   the √ shape and the per-tier attack ratios are properties of your army, so
+   they transfer straight to the bear. Only the absolute multiplier is
+   target-specific, and the app fits one per target.                          */
+const DEFAULT_TARGETS = [
+  {id:"bear",   n:"Bear Trap",       count:5000, def:10, hp:83.3333, rounds:10, arcBonus:1.10,
+   note:"The bear is an Infantry unit, so archers get their +10% Ranged Strike.", known:true},
+  {id:"beast",  n:"Beast (hunt)",    count:5000, def:10, hp:83.3333, rounds:10, arcBonus:1.00,
+   note:"Stats unknown — that's fine. Only the scale factor is target-specific; shape and tier ratios still transfer.", known:false},
+  {id:"terror", n:"Terror",          count:5000, def:10, hp:83.3333, rounds:10, arcBonus:1.00,
+   note:"Stats unknown — same reasoning as Beast.", known:false},
+  {id:"custom", n:"Custom target",   count:5000, def:10, hp:83.3333, rounds:10, arcBonus:1.00,
+   note:"Anything else you can hit repeatedly.", known:false}
+];
+
 /* ---------- Pets ----------
    VERIFIED from in-game screenshots: each pet independently grants
    "Squads' Attack +X%" and "Squads' Defense +X%" at the same value, and they
@@ -1445,7 +1509,7 @@ function blankProfile(name){
     ratio: [1,10,89],
     // march plan
     cycles: 3, capMode:"march", customCap:60000, limitInv:false,
-    // observed bear runs, for calibration
+    // observed runs (any target), for calibration
     runs: [],
     // timing model (minutes)
     gatherMin: 5,      // your own rally's gather countdown before it launches
@@ -1736,12 +1800,23 @@ const MODELS = [
   {id:"total",     n:"Whole-army √", d:"army = √(total_troops × bear_count), split by share"},
   {id:"plainsqrt", n:"Plain √troops", d:"army = √troops_of_type, no bear-count term"}
 ];
+function targetById(id){
+  const list=(typeof DB!=="undefined" && DB.targets) ? DB.targets : DEFAULT_TARGETS;
+  return list.find(t=>t.id===id) || list[0];
+}
+/* Predict a run against whichever target it was fought on. */
 function predictRun(p, st, run){
   const counts={inf:+run.inf||0, cav:+run.cav||0, arc:+run.arc||0};
   const baseAtk={}; TYPES.forEach(t=>baseAtk[t]=tierAtk(+run.tier||10, t));
-  const saved=CONST.calibration; CONST.calibration=1;          // predict UNcalibrated
-  const d=marchDamage(p, st, counts, {baseAtk}).total;
-  CONST.calibration=saved;
+  const tg=targetById(run.target||"bear");
+  const saved={cal:CONST.calibration, cnt:CONST.bearCount, def:CONST.bearDefense,
+               hp:CONST.bearHealth, rd:CONST.rounds, arc:CONST.archerVsBear};
+  CONST.calibration=1; CONST.bearCount=tg.count; CONST.bearDefense=tg.def;
+  CONST.bearHealth=tg.hp; CONST.rounds=tg.rounds; CONST.archerVsBear=tg.arcBonus;
+  const st2=buildStats(p);                       // bearDef/typeMod depend on the target
+  const d=marchDamage(p, st2, counts, {baseAtk}).total;
+  CONST.calibration=saved.cal; CONST.bearCount=saved.cnt; CONST.bearDefense=saved.def;
+  CONST.bearHealth=saved.hp; CONST.rounds=saved.rd; CONST.archerVsBear=saved.arc;
   return d;
 }
 function calibrate(p){
@@ -1755,14 +1830,27 @@ function calibrate(p){
       const pred=predictRun(p,st,r);
       return {run:r, pred, ratio: pred>0 ? (+r.score)/pred : Infinity};
     });
+    /* Each TARGET gets its own scale factor — a beast and a bear differ by a
+       constant. Model shape is then judged on how consistent the residuals are
+       AFTER removing that per-target scale, so runs on different targets can be
+       pooled into one verdict. */
+    const byTarget={};
+    rows.forEach(x=>{ const tid=x.run.target||"bear"; (byTarget[tid]=byTarget[tid]||[]).push(x.ratio); });
+    const scale={};
+    Object.keys(byTarget).forEach(tid=>{
+      const rs=byTarget[tid].filter(isFinite);
+      scale[tid]= rs.length? sum(rs)/rs.length : 1;
+    });
+    rows.forEach(x=>{ x.scale=scale[x.run.target||"bear"]||1; x.resid=x.ratio/x.scale; });
+    const resids=rows.map(x=>x.resid).filter(isFinite);
+    const rm=resids.length? sum(resids)/resids.length : 0;
+    const sd=resids.length>1
+      ? Math.sqrt(sum(resids.map(x=>(x-rm)*(x-rm)))/(resids.length-1)) : 0;
+    const cv=rm>0? sd/rm : Infinity;
+    const worst=resids.length? Math.max(...resids.map(x=>Math.abs(x/rm-1))) : 0;
     const ratios=rows.map(x=>x.ratio).filter(isFinite);
-    const mean=ratios.length? sum(ratios)/ratios.length : 0;
-    const sd=ratios.length>1
-      ? Math.sqrt(sum(ratios.map(x=>(x-mean)*(x-mean)))/(ratios.length-1)) : 0;
-    const cv=mean>0? sd/mean : Infinity;
-    // residual after applying the best single scale factor
-    const worst=ratios.length? Math.max(...ratios.map(x=>Math.abs(x/mean-1))) : 0;
-    return {...m, rows, mean, sd, cv, worst};
+    const mean=(scale.bear!=null) ? scale.bear : (ratios.length? sum(ratios)/ratios.length : 0);
+    return {...m, rows, mean, scale, sd, cv, worst};
   });
   MODEL=savedModel;
   models.sort((a,b)=>a.cv-b.cv);
@@ -1773,13 +1861,24 @@ function calibrate(p){
     const byTier={};
     m.rows.forEach(x=>{
       const t=+x.run.tier||10;
-      (byTier[t]=byTier[t]||[]).push(x.ratio);
+      (byTier[t]=byTier[t]||[]).push(x.resid!=null?x.resid:x.ratio);   // target scale removed
     });
-    m.tiers=Object.keys(byTier).map(Number).sort((a,b)=>a-b).map(t=>{
+    /* Tier fit. With runs on a single target the per-target scale and a
+       uniform tier error are indistinguishable, so only RATIOS between tiers
+       are identifiable. Anchor on the lowest tier present: it keeps its current
+       value and the others move relative to it. The absolute level is set by
+       the target scale factor, not here. */
+    const tierList=Object.keys(byTier).map(Number).sort((a,b)=>a-b);
+    const raw=tierList.map(t=>{
       const rs=byTier[t].filter(isFinite);
-      const mean=rs.length? sum(rs)/rs.length : 0;
-      return {tier:t, n:rs.length, ratio:mean,
-              current:tierAtk(t,"arc"), fitted:+(tierAtk(t,"arc")*mean).toFixed(1)};
+      return {tier:t, n:rs.length, ratio: rs.length? sum(rs)/rs.length : 0};
+    });
+    const anchor=raw.length? raw[0].ratio : 1;
+    m.anchorTier=raw.length? raw[0].tier : null;
+    m.tiers=raw.map(x=>{
+      const rel = anchor>0 ? x.ratio/anchor : 1;
+      return {tier:x.tier, n:x.n, ratio:x.ratio, rel,
+              current:tierAtk(x.tier,"arc"), fitted:+(tierAtk(x.tier,"arc")*rel).toFixed(1)};
     });
   });
   // Two models are INDISTINGUISHABLE on this data if their per-run ratio
@@ -1793,12 +1892,13 @@ function calibrate(p){
     if(same){ models[i].tiedWith.push(models[j].n); models[j].tiedWith.push(models[i].n); }
   }
   // can we actually discriminate? need >=2 runs that differ in size or shape
+  const targets=new Set(runs.map(r=>r.target||"bear"));
   const sizes=new Set(runs.map(r=>Math.round((+r.inf + +r.cav + +r.arc)/1000)));
   const shapes=new Set(runs.map(r=>{const t=(+r.inf + +r.cav + +r.arc)||1; return Math.round((+r.arc/t)*20);}));
   return {
     runs, models, ok:true,
     canDiscriminate: runs.length>=2 && (sizes.size>1 || shapes.size>1) && models[0].tiedWith.length===0,
-    tied: models[0].tiedWith,
+    tied: models[0].tiedWith, targets:[...targets],
     variedSize: sizes.size>1, variedShape: shapes.size>1
   };
 }
@@ -2291,6 +2391,7 @@ if(DB.troopStats) TROOP_STATS=DB.troopStats;
 /* ---------- user-overridable labels ----------
    Any in-game name can be corrected by the user and persists. */
 DB.labels = DB.labels || {};
+DB.targets = DB.targets || JSON.parse(JSON.stringify(DEFAULT_TARGETS));
 if(DB.scaleExp!=null) SCALE_EXP = DB.scaleExp;
 /* Every renameable label points at a live object property, so an edit
    propagates through the whole app with no lookup indirection. */
@@ -2343,6 +2444,79 @@ let saveT=null;
 function flashSave(){ const b=$("#btnSaveNow"); if(!b)return; b.textContent="💾 Saved"; clearTimeout(saveT); }
 function touch(){ save(); refresh(); }
 
+/* =========================================================================
+   IDENTITY GUARD
+   Saves are per-browser, so no two people can ever collide. The real hazard is
+   inside one copy: you import teammates into the Alliance tab, then start
+   typing while THEIR profile is selected. So we pin one profile as "you" and
+   make everyone else's read-only until you deliberately unlock them.
+   ========================================================================= */
+let VIEW_UNLOCKED = false;
+function isMe(p){ return !!DB.me && p && p.id===DB.me; }
+function meProfile(){ return DB.profiles.find(p=>p.id===DB.me); }
+
+function showWelcome(force){
+  const m=$("#welcomeModal"); if(!m) return;
+  const cur=meProfile();
+  $("#welcomeName").value = force && cur ? cur.name : (cur?cur.name:"");
+  $("#welcomeTrap").value = cur ? (cur.trap||1) : 1;
+  $("#welcomeSub").innerHTML = force
+    ? `Pick which profile is <b>yours</b>. Everyone else's stays read-only so you can't type over their setup by accident.`
+    : `Your setup is saved in <b>this browser only</b> — nothing is shared and nobody else can see or change it.
+       Tell it who you are so your own profile stays separate from any alliance members you import later.`;
+  m.style.display="flex";
+  setTimeout(()=>$("#welcomeName").focus(),50);
+}
+function hideWelcome(){ const m=$("#welcomeModal"); if(m) m.style.display="none"; }
+function buildWelcome(){
+  $("#welcomeGo").onclick=()=>{
+    const nm=($("#welcomeName").value||"").trim();
+    if(!nm){ alert("Enter a name so your profile can be told apart from your alliance."); return; }
+    const trap=+$("#welcomeTrap").value||1;
+    let mine=DB.profiles.find(p=>p.name.toLowerCase()===nm.toLowerCase());
+    if(!mine){ mine=blankProfile(nm); mine.name=nm; DB.profiles.push(mine); }
+    mine.trap=trap;
+    DB.me=mine.id; DB.welcomed=true;
+    DB.cur=DB.profiles.indexOf(mine); P=DB.profiles[DB.cur];
+    VIEW_UNLOCKED=false;
+    store(DB); hideWelcome(); renderAll();
+  };
+  $("#welcomeSkip").onclick=()=>{ DB.welcomed=true; store(DB); hideWelcome(); };
+  $("#welcomeModal").addEventListener("click",e=>{ if(e.target.id==="welcomeModal" && DB.welcomed) hideWelcome(); });
+}
+/* Banner + read-only guard when you're looking at someone else's profile. */
+function applyProfileGuard(){
+  const wrap=$("#ownerBarWrap"); if(!wrap) return;
+  const mine=isMe(P) || !DB.me;
+  wrap.innerHTML="";
+  if(!mine){
+    const bar=el("div",{class:"owner-bar"});
+    bar.innerHTML=`<span style="font-size:17px">👀</span>
+      <div style="flex:1;font-size:12.5px">You're viewing <b>${P.name}</b>'s setup${DB.me?` — you are <b>${(meProfile()||{}).name||"?"}</b>`:""}.
+      ${VIEW_UNLOCKED?"Editing is <b>unlocked</b> — changes overwrite their data.":"It's read-only so you can't overwrite them."}</div>`;
+    const goMe=el("button",{class:"btn sm pri"},"Back to my profile");
+    goMe.onclick=()=>{ const i=DB.profiles.findIndex(p=>p.id===DB.me); if(i>=0){DB.cur=i;P=DB.profiles[i];VIEW_UNLOCKED=false;store(DB);renderAll();} };
+    const tog=el("button",{class:"btn sm"}, VIEW_UNLOCKED?"Lock it again":"Let me edit theirs");
+    tog.onclick=()=>{ VIEW_UNLOCKED=!VIEW_UNLOCKED; applyProfileGuard(); };
+    bar.append(goMe,tog);
+    wrap.appendChild(bar);
+  }
+  const ro = !mine && !VIEW_UNLOCKED;
+  ["#tab-setup","#tab-rally","#tab-squads","#tab-marches","#tab-calib"].forEach(sel=>{
+    const root=$(sel); if(!root) return;
+    root.querySelectorAll("input,select,textarea,button").forEach(e=>{
+      e.disabled = ro;
+      e.style.opacity = ro ? ".55" : "";
+    });
+    root.querySelectorAll(".pill").forEach(e=>{
+      e.style.pointerEvents = ro ? "none" : "";
+      e.style.opacity = ro ? ".55" : "";
+    });
+  });
+  if(ro) applyDataLockSafe();
+}
+function applyDataLockSafe(){ try{ applyDataLock(); }catch(e){} }
+
 /* ---------- tabs ---------- */
 $$("#nav button").forEach(b=>b.onclick=()=>{
   $$("#nav button").forEach(x=>x.classList.remove("on")); b.classList.add("on");
@@ -2358,13 +2532,18 @@ $$("#nav button").forEach(b=>b.onclick=()=>{
 /* ---------- profiles ---------- */
 function renderProfiles(){
   const s=$("#profileSel"); s.innerHTML="";
-  DB.profiles.forEach((p,i)=>s.appendChild(el("option",{value:i},p.name)));
+  DB.profiles.forEach((p,i)=>s.appendChild(el("option",{value:i}, (p.id===DB.me?"★ ":"")+p.name+(p.trap?"  ·  Trap "+p.trap:""))));
   s.value=DB.cur;
 }
-$("#profileSel").onchange=e=>{ DB.cur=+e.target.value; P=DB.profiles[DB.cur]; store(DB); renderAll(); };
+$("#profileSel").onchange=e=>{ DB.cur=+e.target.value; P=DB.profiles[DB.cur]; VIEW_UNLOCKED=false; store(DB); renderAll(); };
 $("#btnNewProfile").onclick=()=>{ const n=prompt("Profile name (e.g. an alliance member):","Member "+(DB.profiles.length+1)); if(!n)return; DB.profiles.push(blankProfile(n)); DB.cur=DB.profiles.length-1; P=DB.profiles[DB.cur]; save(); renderAll(); };
 $("#btnDupProfile").onclick=()=>{ const c=cloneP(P); c.name=P.name+" (copy)"; c.id="p"+Math.random().toString(36).slice(2,8); DB.profiles.push(c); DB.cur=DB.profiles.length-1; P=DB.profiles[DB.cur]; save(); renderAll(); };
-$("#btnDelProfile").onclick=()=>{ if(DB.profiles.length<2){alert("Keep at least one profile.");return;} if(!confirm("Delete “"+P.name+"”?"))return; DB.profiles.splice(DB.cur,1); DB.cur=0; P=DB.profiles[0]; save(); renderAll(); };
+$("#btnDelProfile").onclick=()=>{
+  if(DB.profiles.length<2){alert("Keep at least one profile.");return;}
+  if(isMe(P)){ alert("That's your own profile. Pick a different owner first via “This is me”."); return; }
+  if(!confirm("Delete “"+P.name+"”?"))return;
+  DB.profiles.splice(DB.cur,1); DB.cur=0; P=DB.profiles[0]; VIEW_UNLOCKED=false; save(); renderAll();
+};
 
 /* ---------- generic binder (idempotent — safe to call on every re-render) ---------- */
 function bind(sel, get, set, disp){
@@ -2939,7 +3118,7 @@ function renderRoster(){
     tsel.value=p.trap||1;
     tsel.onchange=()=>{ p.trap=+tsel.value; save(); renderRoster(); };
     trapCell.appendChild(tsel);
-    tr.innerHTML=`<td><b>${p.name}</b>${i===DB.cur?' <span class="tag">current</span>':''}</td>`;
+    tr.innerHTML=`<td><b>${p.name}</b>${p.id===DB.me?' <span class="you-badge">YOU</span>':''}${i===DB.cur?' <span class="tag">viewing</span>':''}</td>`;
     tr.appendChild(trapCell);
     const rest=el("template");
     rest.innerHTML=`<td class="n">${fmt(sd)}</td><td class="n">${fmt(hd)}</td><td><small>${bj}</small></td>
@@ -2950,16 +3129,77 @@ function renderRoster(){
   $$("[data-go]").forEach(b=>b.onclick=()=>{ DB.cur=+b.dataset.go; P=DB.profiles[DB.cur]; store(DB); renderAll(); });
 }
 function buildRoster(){
-  $("#btnExportOne").onclick=()=>{ $("#ioBox").value=JSON.stringify({v:1,profiles:[P]},null,1); };
-  $("#btnExportAll").onclick=()=>{ $("#ioBox").value=JSON.stringify({v:1,profiles:DB.profiles},null,1); };
+  const dl=(name,obj)=>{
+    const blob=new Blob([JSON.stringify(obj,null,1)],{type:"application/json"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob); a.download=name;
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{URL.revokeObjectURL(a.href); a.remove();},500);
+  };
+  const safe=s=>String(s||"profile").replace(/[^a-z0-9._-]+/gi,"_").slice(0,40);
+  $("#btnDownloadOne").onclick=()=>dl(`kingshot-${safe(P.name)}.json`, {v:2, kind:"profile", profiles:[P]});
+  $("#btnDownloadAll").onclick=()=>dl(`kingshot-backup-${safe((meProfile()||P).name)}.json`, {
+    v:2, kind:"full", profiles:DB.profiles, me:DB.me,
+    consts:CONST, troopStats:TROOP_STATS, labels:DB.labels, targets:DB.targets,
+    model:MODEL, proc:PROCMODE, scaleExp:SCALE_EXP
+  });
+  $("#btnUploadFile").onclick=()=>$("#fileInput").click();
+  $("#fileInput").onchange=e=>{
+    const f=e.target.files&&e.target.files[0]; if(!f) return;
+    const rd=new FileReader();
+    rd.onload=()=>{
+      $("#ioBox").value=rd.result;
+      const full=(()=>{ try{ return JSON.parse(rd.result); }catch(_){ return null; } })();
+      if(full && full.kind==="full"){
+        if(confirm("This is a FULL backup. Restore everything — profiles, constants, labels and calibration runs?\n\nThis replaces your current data.")){
+          if(full.profiles) DB.profiles=full.profiles;
+          if(full.me) DB.me=full.me;
+          if(full.consts) CONST=Object.assign(JSON.parse(JSON.stringify(DEFAULT_CONST)), full.consts);
+          if(full.troopStats) TROOP_STATS=full.troopStats;
+          if(full.labels) DB.labels=full.labels;
+          if(full.targets) DB.targets=full.targets;
+          if(full.model) MODEL=full.model;
+          if(full.proc) PROCMODE=full.proc;
+          if(full.scaleExp!=null) SCALE_EXP=full.scaleExp;
+          DB.cur=Math.min(DB.cur||0, DB.profiles.length-1);
+          P=DB.profiles[DB.cur]; VIEW_UNLOCKED=false;
+          save(); renderAll(); alert("Backup restored.");
+          return;
+        }
+      }
+      $("#btnDoImport").click();
+    };
+    rd.readAsText(f);
+    e.target.value="";
+  };
+  $("#btnExportOne").onclick=()=>{ $("#ioBox").value=JSON.stringify({v:2,kind:"profile",profiles:[P]},null,1); };
+  $("#btnExportAll").onclick=()=>{ $("#ioBox").value=JSON.stringify({v:2,kind:"profile",profiles:DB.profiles},null,1); };
   $("#btnImport").onclick=()=>{ $("#ioBox").focus(); $("#ioBox").placeholder="Paste an export here and press Import from box."; };
   $("#btnCopyIO").onclick=()=>{ const t=$("#ioBox"); t.select(); try{document.execCommand("copy");}catch(e){} };
   $("#btnDoImport").onclick=()=>{
     try{
       const o=JSON.parse($("#ioBox").value);
       const ps=o.profiles||[o];
-      ps.forEach(p=>{ const b=blankProfile(p.name||"Imported"); DB.profiles.push(Object.assign(b,p)); });
-      save(); renderAll(); alert("Imported "+ps.length+" profile(s).");
+      let added=0, updated=0, skippedMe=0;
+      ps.forEach(p=>{
+        const name=(p.name||"Imported").trim();
+        const ix=DB.profiles.findIndex(x=>x.name.trim().toLowerCase()===name.toLowerCase());
+        if(ix>=0){
+          if(DB.profiles[ix].id===DB.me){
+            if(!confirm(`“${name}” is YOUR profile. Overwrite your own setup with the imported one?`)){ skippedMe++; return; }
+          }
+          const keepId=DB.profiles[ix].id;
+          DB.profiles[ix]=Object.assign(blankProfile(name), p, {id:keepId, name});
+          updated++;
+        }else{
+          const b=blankProfile(name);
+          DB.profiles.push(Object.assign(b, p, {id:b.id, name}));
+          added++;
+        }
+      });
+      save(); renderAll();
+      alert(`Import done.\n${added} added, ${updated} updated by name` + (skippedMe?`, ${skippedMe} skipped (your own profile)`:"") +
+            `.\n\nMatching is by governor name, so re-importing someone refreshes them instead of creating a duplicate.`);
     }catch(e){ alert("That doesn't parse as JSON: "+e.message); }
   };
   $("#btnAssign").onclick=()=>{
@@ -3031,7 +3271,13 @@ function renderRuns(){
       inp.oninput=()=>{ r[key]= type==="number" ? (+inp.value||0) : inp.value; touch(); };
       td.appendChild(inp); tr.appendChild(td); return inp;
     };
-    mk("label","text","120px");
+    mk("label","text","110px");
+    const tdTg=el("td");
+    const tgs=el("select",{style:"width:126px;padding:4px 6px"});
+    (DB.targets||DEFAULT_TARGETS).forEach(t=>tgs.appendChild(el("option",{value:t.id},t.n)));
+    tgs.value=r.target||"bear";
+    tgs.onchange=()=>{ r.target=tgs.value; touch(); };
+    tdTg.appendChild(tgs); tr.appendChild(tdTg);
     const tdT=el("td"); const sel=el("select",{style:"width:110px;padding:4px 6px"});
     TROOP_STATS.forEach(x=>sel.appendChild(el("option",{value:x.t},`T${x.t} ${x.name}`)));
     sel.value=r.tier||10; sel.onchange=()=>{r.tier=+sel.value; touch();};
@@ -3043,9 +3289,9 @@ function renderRuns(){
     tdD.appendChild(del); tr.appendChild(tdD);
     tb.appendChild(tr);
   });
-  if(!P.runs.length) tb.appendChild(el("tr",{},'<td colspan="8"><small>No runs yet. Add one after your next bear.</small></td>'));
+  if(!P.runs.length) tb.appendChild(el("tr",{},'<td colspan="9"><small>No runs yet. Hit a Beast or Terror a couple of times with different troop counts, then record them here.</small></td>'));
   $("#btnAddRun").onclick=()=>{
-    P.runs.push({label:"Run "+(P.runs.length+1), tier:P.topTier, inf:0, cav:0, arc:0, score:0, use:true});
+    P.runs.push({label:"Run "+(P.runs.length+1), target:"beast", tier:P.topTier, inf:0, cav:0, arc:0, score:0, use:true});
     touch(); renderRuns();
   };
   $("#btnClearRuns").onclick=()=>{ if(confirm("Delete all recorded runs?")){P.runs=[]; touch(); renderRuns();} };
@@ -3090,9 +3336,14 @@ function runCalibration(){
   });
   t.appendChild(tb); out.appendChild(t);
 
+  const scaleLines=Object.entries(best.scale||{}).map(([tid,v])=>{
+    const tg=targetById(tid); return `${tg.n}: <b>×${v.toFixed(3)}</b>`;
+  }).join(" &nbsp;·&nbsp; ");
   out.appendChild(el("div",{class:res.canDiscriminate?"note ok":"note"},
     `<b>${best.n}</b> fits your data best${res.canDiscriminate?` — its predictions stay consistent across runs (spread ${(best.cv*100).toFixed(1)}%)`:""}.
-     Your account scores <b>×${best.mean.toFixed(3)}</b> what the raw formula predicts.
+     <br>Scale factor per target: ${scaleLines||"—"}
+     ${res.targets.length>1?`<br><small>Different targets legitimately have different scales — that's why they're fitted separately. The <i>shape</i> verdict above pools every run.</small>`:""}
+     <br>Against the bear specifically you score <b>×${best.mean.toFixed(3)}</b> what the raw formula predicts.
      ${best.mean>1.15?"Being well above 1 usually means the troop base-attack numbers are too low — they're the least verified input.":""}
      ${best.mean<0.85?"Being well below 1 usually means the troop base-attack numbers are too high.":""}`));
 
@@ -3123,46 +3374,52 @@ function runCalibration(){
         `All your runs use the same troop tier (T${best.tiers[0]?best.tiers[0].tier:"?"}), so this can't separate tier attack from the
          overall scale factor. Record a run at a <b>different tier</b> with a similar troop count to unlock it.`));
     }else{
+      const anchorNm=(TROOP_STATS[best.anchorTier-1]||{}).name||("T"+best.anchorTier);
       const t=el("table");
-      t.innerHTML="<thead><tr><th>Tier</th><th class='n'>Runs</th><th class='n'>Observed / predicted</th><th class='n'>Archer atk now</th><th class='n'>Measured</th><th class='n'>Change</th></tr></thead>";
+      t.innerHTML="<thead><tr><th>Tier</th><th class='n'>Runs</th><th class='n'>Relative to T"+best.anchorTier+"</th><th class='n'>Archer atk now</th><th class='n'>Measured</th><th class='n'>Change</th></tr></thead>";
       const tb=el("tbody");
       best.tiers.forEach(x=>{
         const nm=(TROOP_STATS[x.tier-1]||{}).name||("T"+x.tier);
-        const d=(x.ratio-1);
+        const d=(x.fitted/Math.max(1e-9,x.current))-1;
         tb.appendChild(el("tr",{},
-          `<td>T${x.tier} ${nm}</td><td class="n">${x.n}</td><td class="n">×${x.ratio.toFixed(3)}</td>
+          `<td>T${x.tier} ${nm}${x.tier===best.anchorTier?' <span class="tag">anchor</span>':''}</td>
+           <td class="n">${x.n}</td><td class="n">×${x.rel.toFixed(3)}</td>
            <td class="n">${x.current}</td><td class="n"><b>${x.fitted}</b></td>
            <td class="n ${Math.abs(d)<0.05?"delta-pos":"delta-neg"}">${pct(d)}</td>`));
       });
       t.appendChild(tb); tf.appendChild(t);
-      const rel=best.tiers.map(x=>x.fitted);
-      tf.appendChild(el("div",{class:"note"},
-        `Measured attack ratio between your tiers: <b>${best.tiers.map((x,i)=>i?"":"").join("")}${
-          best.tiers.map(x=>"T"+x.tier).join(" : ")} = ${rel.map(v=>(v/rel[0]).toFixed(2)).join(" : ")}</b>.
-         The app's current curve predicts ${best.tiers.map(x=>(x.current/best.tiers[0].current).toFixed(2)).join(" : ")}.
-         ${Math.abs(rel[rel.length-1]/rel[0] - best.tiers[best.tiers.length-1].current/best.tiers[0].current)>0.1
-            ? "<b>These disagree</b> — the fitted values are a real measurement and should replace the curve."
-            : "These agree, so the fitted curve is holding up."}`));
-      const ap=el("button",{class:"btn pri"},"Apply measured attack to these tiers");
+      const measured=best.tiers.map(x=>x.rel.toFixed(2)).join(" : ");
+      const curve=best.tiers.map(x=>(x.current/best.tiers[0].current).toFixed(2)).join(" : ");
+      const disagree=best.tiers.some(x=>Math.abs(x.fitted/Math.max(1e-9,x.current)-1)>0.08);
+      tf.appendChild(el("div",{class:disagree?"note warn":"note ok"},
+        `<b>Measured tier ratio</b> ${best.tiers.map(x=>"T"+x.tier).join(" : ")} = <b>${measured}</b>.
+         The app's fitted curve currently says ${curve}.
+         ${disagree ? "<b>These disagree</b> — your measurement wins; it's real data and the curve is an inference."
+                    : "These agree, so the curve is holding up at the tiers you tested."}
+         <br><small>Only <b>ratios</b> are measurable this way: a target being weak and all your tiers being weak look identical.
+         So T${best.anchorTier} ${anchorNm} is held fixed as the anchor and the others move relative to it. The absolute level comes from
+         the per-target scale factor above.</small>`));
+      const ap=el("button",{class:"btn pri"},`Apply — keep T${best.anchorTier} fixed, rescale the rest`);
       ap.onclick=()=>{
         best.tiers.forEach(x=>{
+          if(x.tier===best.anchorTier) return;
           const row=TROOP_STATS[x.tier-1]; if(!row) return;
-          ["inf","cav","arc"].forEach(k=>row[k]=+(row[k]*x.ratio).toFixed(1));
-          row.est=true;
+          ["inf","cav","arc"].forEach(k=>row[k]=+(row[k]*x.rel).toFixed(1));
+          row.est=true; row.src="measured";
         });
-        CONST.calibration=1; MODEL=best.id; save(); refresh();
-        alert("Applied. Tiers you measured now use their fitted attack; other tiers still use the curve.");
+        MODEL=best.id; save(); refresh();
+        alert(`Applied. Tiers you measured are now scaled relative to T${best.anchorTier}; untested tiers still use the curve.`);
       };
       tf.appendChild(ap);
     }
   }
   best.rows.forEach(x=>{
     const tot=(+x.run.inf)+(+x.run.cav)+(+x.run.arc);
-    const resid=x.ratio/best.mean-1;
+    const resid=(x.resid!=null?x.resid:1)-1;
     const tr=el("tr");
     tr.innerHTML=`<td>${x.run.label||"—"}</td><td class="n">${fmtN(tot)}</td>
       <td class="n">${fmt(x.pred)}</td><td class="n">${fmt(+x.run.score)}</td>
-      <td class="n">×${x.ratio.toFixed(3)}</td>
+      <td class="n">×${x.ratio.toFixed(3)}<br><small style="color:var(--dim2)">${targetById(x.run.target||"bear").n}</small></td>
       <td class="n ${Math.abs(resid)<0.05?"delta-pos":"delta-neg"}">${pct(resid)}</td>`;
     rt.appendChild(tr);
   });
@@ -3523,6 +3780,7 @@ function renderHelp(){
 /* ================= BOOT ================= */
 function renderAll(){
   applyLabels();
+  if(!DB.welcomed) setTimeout(()=>showWelcome(false),150);
   renderProfiles();
   buildSetup(); buildRally(); buildMarches(); buildWhatIf(); buildRoster(); renderRuns(); buildSquadTab(); buildDataLock();
   $$("#roleRow .pill").forEach(x=>x.classList.toggle("on",x.dataset.role===P.role));
@@ -3530,6 +3788,7 @@ function renderAll(){
   $("#joinBox").style.display = P.role==="host"?"none":"";
   renderHelp();
   refresh();
+  applyProfileGuard();
 }
 $("#heroSearch").addEventListener("input",renderHeroTable);
 $$("#heroFilter .pill").forEach(p=>p.onclick=()=>{ $$("#heroFilter .pill").forEach(x=>x.classList.remove("on")); p.classList.add("on"); heroFilter=p.dataset.hf; renderHeroTable(); });
@@ -4187,6 +4446,7 @@ function renderMarginal(){
 }
 
 /* boot once every renderer exists */
+buildWelcome();
 renderAll();
 </script>
 </body>
